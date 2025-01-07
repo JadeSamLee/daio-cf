@@ -70,7 +70,7 @@ def train_cnn_model(data, labels):
 
     model = create_cnn_model((2, 2, 1))
     
-    model.fit(X_train, y_train, epochs=20)
+    model.fit(X_train, y_train, epochs=50)
 
     model.save('cnn_task_classifier.h5')
 
@@ -82,4 +82,4 @@ def main(base_directory):
     train_cnn_model(data, labels)
 
 if __name__ == "__main__":
-    main('C://Users//jasmi//Downloads//dev_daio')
+    main('videos')
