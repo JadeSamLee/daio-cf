@@ -5,7 +5,8 @@ import glob
 import numpy as np
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Input
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Input, Dropout
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 TASK_PARAMETERS = {
     "reading_task": {},
@@ -46,10 +47,17 @@ def prepare_data_for_cnn(base_dir):
 def create_cnn_model(input_shape):
     model = Sequential()
     model.add(Input(shape=input_shape))
+
     model.add(Conv2D(32, (2, 2), activation='relu', padding='same'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Conv2D(64, (2, 2), activation='relu', padding='same'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(Conv2D(128, (2, 2), activation='relu', padding='same'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+
     model.add(Flatten())
-    model.add(Dense(64, activation='relu'))
+    model.add(Dense(128, activation='relu'))
     model.add(Dense(len(TASK_PARAMETERS), activation='softmax'))
 
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
@@ -70,7 +78,10 @@ def train_cnn_model(data, labels):
 
     model = create_cnn_model((2, 2, 1))
     
-    model.fit(X_train, y_train, epochs=50)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+    model_checkpoint = ModelCheckpoint('DAIO_best_model.h5', save_best_only=True)
+
+    model.fit(X_train, y_train, epochs=50, callbacks=[early_stopping, model_checkpoint])
 
     model.save('cnn_task_classifier.h5')
 
