@@ -2,7 +2,6 @@ import cv2
 import csv
 import numpy as np
 from gaze_tracking import GazeTracking
-from gaze_tracking.eye import _middle_point
 from tensorflow.keras.models import load_model
 import gradio as gr
 
@@ -38,6 +37,14 @@ def calculate_k(gaze_data, fixation_threshold=2, window_size=1):
             k_values.append([k, "concentrated" if k > 0 else "exploratory"], mu_d, mu_a)
     
     return k_values
+
+def calculate_middle_point(p1, p2):
+    """Calculate the middle point between two points."""
+    if p1 is None or p2 is None:
+        return (0.0, 0.0)
+    x = (p1[0] + p2[0]) / 2
+    y = (p1[1] + p2[1]) / 2
+    return (x, y)
 
 def process_test_video(video_path):
     gaze = GazeTracking()
@@ -80,7 +87,7 @@ def process_test_video(video_path):
         else:
             pupil_gaze_direction.append("Unknown")
 
-        pupil_middle.append(_middle_point(left_pupil, right_pupil))
+        pupil_middle.append(calculate_middle_point(left_pupil, right_pupil))
                 
         frame_numbers.append(frame_count)  
         frame_count += 1  
