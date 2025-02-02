@@ -3,6 +3,7 @@ import csv
 import os
 import glob
 from gaze_tracking import GazeTracking
+import numpy as np
 
 def calculate_k(gaze_data, fixation_threshold=2, window_size=1):
     fixations = []
@@ -27,7 +28,7 @@ def calculate_k(gaze_data, fixation_threshold=2, window_size=1):
             mu_d, sigma_d = np.mean(fix_window), np.std(fix_window) if len(fix_window) > 1 else 1
             mu_a, sigma_a = np.mean(sac_window), np.std(sac_window) if len(sac_window) > 1 else 1
             k = (mu_d / sigma_d) - (mu_a / sigma_a)
-            k_values.append([k, "concentrated" if k > 0 else "exploratory"], mu_d, mu_a)
+            k_values.append([k, "concentrated" if k > 0 else "exploratory", mu_d, mu_a])
     
     return k_values
 
@@ -112,6 +113,7 @@ def process_video(video_path, output_csv, output_images_dir):
                         'Behaviour', "Fixation Level", "Saccade Level"])  
         
         for i in range(len(features_list)):
+            k_value = k_values[i] if i < len(k_values) else [None, None, None, None]  # Default values if k_values is shorter
             writer.writerow([
                 image_filenames[i],
                 frame_numbers[i],
@@ -120,10 +122,10 @@ def process_video(video_path, output_csv, output_images_dir):
                 features_list[i][2],
                 features_list[i][3],
                 pupil_gaze_direction[i],
-                k_values[i][0],
-                k_values[i][1],
-                k_values[i][2],
-                k_values[i][3]
+                k_value[0],
+                k_value[1],
+                k_value[2],
+                k_value[3]
             ])
 
     print(f"Finished processing {frame_number} frames for {video_path}")
@@ -148,6 +150,5 @@ def traverse_and_process_videos(base_dir):
 
 def main(base_directory):
     traverse_and_process_videos(base_directory)
-
 
 main('C://Users//jasmi//Downloads//dev_daio')
