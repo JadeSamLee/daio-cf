@@ -94,7 +94,7 @@ def process_video(video_path, output_csv, output_images_dir):
 
         image_filename = f"frame_{frame_number}.png"
         image_path = os.path.join(output_images_dir, image_filename)
-        cv2.imwrite(image_path, frame)
+        #cv2.imwrite(image_path, frame)
         
         middle = calculate_middle_point(left_pupil, right_pupil)
         pupil_middle.append(middle)
@@ -151,4 +151,4 @@ def traverse_and_process_videos(base_dir):
 def main(base_directory):
     traverse_and_process_videos(base_directory)
 
-main('C://Users//jasmi//Downloads//dev_daio')
+main('G:\Thufayl\Eye tracker\daio-cf')
