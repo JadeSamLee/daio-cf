@@ -163,4 +163,4 @@ def traverse_and_process_videos(base_dir):
 def main(base_directory):
     traverse_and_process_videos(base_directory)
 
-main('G:\Thufayl\Eye tracker\daio-cf')
+main('ENTER-BASE-DIRECTORY')
