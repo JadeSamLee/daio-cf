@@ -61,6 +61,7 @@ def prepare_data_for_cnn_lstm(base_dir, sequence_length=30, missing_value_indica
                 except Exception as e:
                     print(f"Error reading CSV file {csv_file}: {e}")
                     continue
+                
 
     direction_encoder.fit(all_directions)
     behaviour_encoder.fit(all_behaviours)
@@ -82,8 +83,8 @@ def prepare_data_for_cnn_lstm(base_dir, sequence_length=30, missing_value_indica
                     print(f"Error reading CSV file {csv_file}: {e}")
                     continue
 
-                cols_to_convert = ['LeftPupilX', 'LeftPupilY', 'RightPupilX', 'RightPupilY',
-                                   'Kvalue', 'FixationLevel', 'SaccadeLevel']
+                cols_to_convert = ['Left Pupil X', 'Left Pupil Y', 'Right Pupil X', 'Right Pupil Y',
+                                   'K Value', 'Fixation Level', 'Saccade Level']
                 existing_cols = [col for col in cols_to_convert if col in df.columns]
 
                 # Enhanced missing value handling
@@ -92,8 +93,12 @@ def prepare_data_for_cnn_lstm(base_dir, sequence_length=30, missing_value_indica
                     df[col] = pd.to_numeric(df[col], errors='coerce')
                 df[existing_cols] = df[existing_cols].fillna(df[existing_cols].median())
                 df[existing_cols] = df[existing_cols].interpolate(method='linear', limit_direction='both')
-                if existing_cols:
-                    df[existing_cols] = scaler.fit_transform(df[existing_cols])
+                try:
+                    if existing_cols:
+                        df[existing_cols] = scaler.fit_transform(df[existing_cols])
+                except Exception as e:  
+                    print(f"Value error reading CSV file {csv_file}: {e}")
+                    
 
                 sequence = []
                 for _, row in df.iterrows():
@@ -215,7 +220,7 @@ def train_model(data, task_labels, attention_labels, sequence_length, output_dir
     history = model.fit(
         X_train, {'task_output': y_train_task, 'attention_output': y_train_attention},
         epochs=100,
-        batch_size=8,
+        batch_size=32,
         validation_data=(X_test, {'task_output': y_test_task, 'attention_output': y_test_attention}),
         callbacks=[early_stopping, model_checkpoint, reduce_lr],
         verbose=1
@@ -269,5 +274,5 @@ def main(base_directory):
                                                behaviour_encoder.transform(behaviour_encoder.classes_))))
 
 if __name__ == "__main__":
-    base_directory = '/content/drive/MyDrive/data'
+    base_directory = 'directory'
     main(base_directory)

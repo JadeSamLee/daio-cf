@@ -52,12 +52,12 @@ def calculate_middle_point(p1, p2):
     y = (p1[1] + p2[1]) / 2
     return (x, y)
 
-def process_video(video_path, output_csv, output_images_dir):
+def process_video(video_path, output_csv):
     print(f"Processing video: {video_path}")  
     gaze = GazeTracking()
     video = cv2.VideoCapture(video_path)
 
-    os.makedirs(output_images_dir, exist_ok=True)
+    #os.makedirs(output_images_dir, exist_ok=True)
 
     features_list = []
     frame_numbers = []
@@ -105,7 +105,7 @@ def process_video(video_path, output_csv, output_images_dir):
             pupil_gaze_direction.append("Unknown")
 
         image_filename = f"frame_{frame_number}.png"
-        image_path = os.path.join(output_images_dir, image_filename)
+        #image_path = os.path.join(output_images_dir, image_filename)
         #cv2.imwrite(image_path, frame)
         
         middle = calculate_middle_point(left_pupil, right_pupil)
@@ -158,9 +158,9 @@ def traverse_and_process_videos(base_dir):
                 output_csv = os.path.join(output_csv_dir, f"{video_name}_data.csv")
                 output_images_dir = os.path.join(base_dir, 'output_images', task_folder, video_name)
 
-                process_video(video_path, output_csv, output_images_dir)
+                process_video(video_path, output_csv)
 
 def main(base_directory):
     traverse_and_process_videos(base_directory)
 
-main('ENTER-BASE-DIRECTORY')
+main('base-directory')
