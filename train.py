@@ -8,21 +8,21 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from tensorflow.keras.layers import (LSTM, BatchNormalization, Conv2D, Dense,
-                                     Dropout, Flatten, Input, MaxPooling2D,
-                                     Reshape, TimeDistributed, Attention, Bidirectional)
+from tensorflow.keras.layers import (LSTM, BatchNormalization, Dense, Dropout, Flatten, 
+                                    Input, Reshape, Bidirectional, Layer)
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.regularizers import l2
 import tensorflow as tf
+import tensorflow_addons as tfa
 
 # Define constants
 CATEGORIES = ["BVPS (GTSS)", "BVPS (TSS)", "GVPS (BTSS)", "GVPS (TSS)"]
 TASKS = ["Picture", "Reading", "Video"]
 
-def prepare_data_for_cnn_lstm(base_dir, sequence_length=30, missing_value_indicator=''):
+def prepare_data_for_timesformer_lstm(base_dir, sequence_length=30, missing_value_indicator=''):
     """
-    Prepares gaze data with enhanced preprocessing and augmentation.
+    Prepares gaze data with enhanced preprocessing and augmentation for TimeSformer-LSTM.
     """
     data, task_labels, attention_labels = [], [], []
     direction_encoder = LabelEncoder()
@@ -130,33 +130,102 @@ def prepare_data_for_cnn_lstm(base_dir, sequence_length=30, missing_value_indica
     return (np.array(data, dtype=np.float32), np.array(task_labels), np.array(attention_labels),
             direction_encoder, behaviour_encoder, scaler)
 
-def create_cnn_lstm_model(sequence_length, feature_dim, num_tasks, num_attention_levels, task_weights, attention_weights):
+class DynamicAttentionModulation(Layer):
     """
-    Enhanced CNN-LSTM model with bidirectional LSTMs and attention mechanism.
+    Custom layer for dynamic attention modulation based on input context.
+    """
+    def __init__(self, units, **kwargs):
+        super(DynamicAttentionModulation, self).__init__(**kwargs)
+        self.units = units
+
+    def build(self, input_shape):
+        self.query_dense = Dense(self.units, use_bias=False)
+        self.key_dense = Dense(self.units, use_bias=False)
+        self.value_dense = Dense(self.units, use_bias=False)
+        self.modulation_dense = Dense(self.units, activation='sigmoid')
+        super(DynamicAttentionModulation, self).build(input_shape)
+
+    def call(self, inputs):
+        query = self.query_dense(inputs)
+        key = self.key_dense(inputs)
+        value = self.value_dense(inputs)
+        
+        # Compute attention scores
+        scores = tf.matmul(query, key, transpose_b=True)
+        scores = scores / tf.sqrt(tf.cast(self.units, tf.float32))
+        attention_weights = tf.nn.softmax(scores, axis=-1)
+        
+        # Modulate attention based on input context
+        modulation = self.modulation_dense(inputs)
+        modulated_weights = attention_weights * modulation
+        
+        # Apply modulated attention
+        context = tf.matmul(modulated_weights, value)
+        return context
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[:-1] + (self.units,)
+
+class TimeSformerBlock(Layer):
+    """
+    TimeSformer block with temporal and spatial attention.
+    """
+    def __init__(self, dim, num_heads, **kwargs):
+        super(TimeSformerBlock, self).__init__(**kwargs)
+        self.dim = dim
+        self.num_heads = num_heads
+        self.temporal_attention = tfa.layers.MultiHeadAttention(
+            head_size=dim // num_heads, num_heads=num_heads)
+        self.spatial_attention = tfa.layers.MultiHeadAttention(
+            head_size=dim // num_heads, num_heads=num_heads)
+        self.norm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.ffn = tf.keras.Sequential([
+            Dense(dim * 4, activation='gelu'),
+            Dense(dim)
+        ])
+
+    def call(self, inputs):
+        # Temporal attention
+        temporal_out = self.temporal_attention([inputs, inputs, inputs])
+        temporal_out = self.norm1(inputs + temporal_out)
+        
+        # Spatial attention
+        spatial_out = self.spatial_attention([temporal_out, temporal_out, temporal_out])
+        spatial_out = self.norm2(temporal_out + spatial_out)
+        
+        # Feed-forward network
+        ffn_out = self.ffn(spatial_out)
+        return spatial_out + ffn_out
+
+def create_timesformer_lstm_model(sequence_length, feature_dim, num_tasks, num_attention_levels, task_weights, attention_weights):
+    """
+    TimeSformer-LSTM model with dynamic attention modulation.
     """
     input_layer = Input(shape=(sequence_length, feature_dim))
-    x = Reshape((sequence_length, 1, feature_dim, 1))(input_layer)
-
-    # CNN layers
-    x = TimeDistributed(Conv2D(128, (5, 5), activation='relu', padding='same'))(x)
-    x = TimeDistributed(BatchNormalization())(x)
-    x = TimeDistributed(MaxPooling2D(pool_size=(1, 2)))(x)
-    x = TimeDistributed(Conv2D(256, (3, 3), activation='relu', padding='same'))(x)
-    x = TimeDistributed(BatchNormalization())(x)
-    x = TimeDistributed(Conv2D(512, (3, 3), activation='relu', padding='same'))(x)
-    x = TimeDistributed(BatchNormalization())(x)
-    x = TimeDistributed(Flatten())(x)
-
-    # Bidirectional LSTMs with attention
-    x = Bidirectional(LSTM(512, return_sequences=True, dropout=0.1, recurrent_dropout=0.1))(x)
+    
+    # Reshape for TimeSformer
+    x = Reshape((sequence_length, feature_dim, 1))(input_layer)
+    x = tf.keras.layers.Dense(128)(x)  # Project to higher dimension
+    
+    # TimeSformer blocks
+    for _ in range(4):  # Stack 4 TimeSformer blocks
+        x = TimeSformerBlock(dim=128, num_heads=8)(x)
+    
+    # Reshape for LSTM
+    x = Reshape((sequence_length, -1))(x)
+    
+    # Bidirectional LSTMs
     x = Bidirectional(LSTM(256, return_sequences=True, dropout=0.1, recurrent_dropout=0.1))(x)
-    attention = Attention()([x, x])  # Self-attention mechanism
-    x = Flatten()(attention)
-
+    x = Bidirectional(LSTM(128, return_sequences=False, dropout=0.1, recurrent_dropout=0.1))(x)
+    
+    # Dynamic Attention Modulation
+    x = DynamicAttentionModulation(units=128)(x)
+    
     # Dense layers
-    x = Dense(1024, activation='relu', kernel_regularizer=l2(0.005))(x)
-    x = Dropout(0.1)(x)
     x = Dense(512, activation='relu', kernel_regularizer=l2(0.005))(x)
+    x = Dropout(0.1)(x)
+    x = Dense(256, activation='relu', kernel_regularizer=l2(0.005))(x)
     x = Dropout(0.1)(x)
 
     task_output = Dense(num_tasks, activation='softmax', name="task_output")(x)
@@ -181,8 +250,8 @@ def create_cnn_lstm_model(sequence_length, feature_dim, num_tasks, num_attention
 
 def train_model(data, task_labels, attention_labels, sequence_length, output_dir):
     """
-    Trains the model, prints summaries for both the best and final models,
-    ensures training continues beyond 20 epochs, and returns both models.
+    Trains the TimeSformer-LSTM model for 100 epochs, prints summaries for both the best and final models,
+    and returns both models.
     """
     if len(data) == 0:
         print("No data available for training.")
@@ -198,19 +267,19 @@ def train_model(data, task_labels, attention_labels, sequence_length, output_dir
     attention_weights = compute_class_weight('balanced', classes=np.unique(attention_labels), y=attention_labels).astype(np.float32)
 
     # Create model
-    model = create_cnn_lstm_model(sequence_length, X_train.shape[2], len(TASKS), len(CATEGORIES),
-                                 task_weights, attention_weights)
+    model = create_timesformer_lstm_model(sequence_length, X_train.shape[2], len(TASKS), len(CATEGORIES),
+                                        task_weights, attention_weights)
 
-    # Callbacks with adjustments to allow more epochs
-    early_stopping = EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True)  # Increased patience
-    best_model_path = os.path.join(output_dir, 'cnn_lstm_best.h5')
+    # Callbacks
+    early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+    best_model_path = os.path.join(output_dir, 'best_model.h5')
     model_checkpoint = ModelCheckpoint(best_model_path, save_best_only=True)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=0.000001)  # Adjusted patience and factor
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0.000001)
 
-    # Train with more epochs
+    # Train for 100 epochs
     history = model.fit(
         X_train, {'task_output': y_train_task, 'attention_output': y_train_attention},
-        epochs=150,  # Increased from 100 to 150 for more training time
+        epochs=100,
         batch_size=32,
         validation_data=(X_test, {'task_output': y_test_task, 'attention_output': y_test_attention}),
         callbacks=[early_stopping, model_checkpoint, reduce_lr],
@@ -222,7 +291,7 @@ def train_model(data, task_labels, attention_labels, sequence_length, output_dir
     print(f"Final Model Test Loss: {evaluation[0]}, Task Accuracy: {evaluation[1]}, Attention Accuracy: {evaluation[2]}")
 
     # Save the final model
-    final_model_path = os.path.join(output_dir, 'cnn_lstm_final.h5')
+    final_model_path = os.path.join(output_dir, 'final_model.h5')
     model.save(final_model_path)
     print(f"Model training complete. Final model saved at: {final_model_path}")
 
@@ -233,7 +302,9 @@ def train_model(data, task_labels, attention_labels, sequence_length, output_dir
     # Load and print the best model summary
     print(f"\nLoading and evaluating the best model from: {best_model_path}")
     best_model = load_model(best_model_path, custom_objects={
-        'weighted_sparse_categorical_crossentropy': lambda y_true, y_pred: tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
+        'weighted_sparse_categorical_crossentropy': lambda y_true, y_pred: tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred),
+        'TimeSformerBlock': TimeSformerBlock,
+        'DynamicAttentionModulation': DynamicAttentionModulation
     })
     best_evaluation = best_model.evaluate(X_test, {'task_output': y_test_task, 'attention_output': y_test_attention})
     print(f"Best Model Test Loss: {best_evaluation[0]}, Task Accuracy: {best_evaluation[1]}, Attention Accuracy: {best_evaluation[2]}")
@@ -252,7 +323,7 @@ def main(base_directory):
 
     # Prepare data
     (data, task_labels, attention_labels,
-     direction_encoder, behaviour_encoder, scaler) = prepare_data_for_cnn_lstm(base_directory, sequence_length)
+     direction_encoder, behaviour_encoder, scaler) = prepare_data_for_timesformer_lstm(base_directory, sequence_length)
     print(f"Data shape: {data.shape}, Task Labels: {task_labels.shape}, Attention Labels: {attention_labels.shape}")
     print("Task Label Distribution:", np.bincount(task_labels))
     print("Attention Label Distribution:", np.bincount(attention_labels))
@@ -285,7 +356,7 @@ def main(base_directory):
     return final_model, best_model
 
 if __name__ == "__main__":
-    base_directory = 'directory'  
+    base_directory = 'directory'
     final_model, best_model = main(base_directory)
     if final_model is not None and best_model is not None:
         print("Both final and best models are available for use.")
