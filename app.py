@@ -139,7 +139,7 @@ def classify_task(model_path, test_video_path):
     return list(TASK_PARAMETERS.keys())[predicted_task_index]
 
 def classify_video(video_file):
-    predicted_task = classify_task('cnn_task_classifier.h5', video_file.name)  
+    predicted_task = classify_task('best_model.h5', video_file.name)  
     if predicted_task == "reading_task":
         response = "The task performed by the subject is reading."
     elif predicted_task == "spotting_differences_task":
